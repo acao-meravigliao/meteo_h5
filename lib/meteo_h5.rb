@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #
-# Copyright (C) 2014-2015, Daniele Orlandi
+# Copyright (C) 2015-2015, Daniele Orlandi
 #
 # Author:: Daniele Orlandi <daniele@orlandi.com>
 #
@@ -22,18 +22,6 @@ class App < Ygg::Agent::Base
   self.app_version = VERSION
   self.task_class = Task
 
-  class WindSample
-    attr_accessor :ts
-    attr_accessor :speed
-    attr_accessor :dir
-    attr_accessor :vec
-    attr_accessor :gst
-
-    def initialize(**pars)
-      pars.each { |k,v| send("#{k}=", v) }
-    end
-  end
-
   def prepare_default_config
     app_config_files << File.join(File.dirname(__FILE__), '..', 'config', 'meteo_h5.conf')
     app_config_files << '/etc/yggdra/meteo_h5.conf'
@@ -41,11 +29,116 @@ class App < Ygg::Agent::Base
 
   def prepare_options(o)
     o.on("--debug-data", "Logs decoded data") { |v| @config['meteo_h5.debug_data'] = true }
-    o.on("--debug-nmea", "Logs NMEA messages") { |v| @config['meteo_h5.debug_nmea'] = true }
     o.on("--debug-serial", "Logs serial lines") { |v| @config['meteo_h5.debug_serial'] = true }
     o.on("--debug-serial-raw", "Logs serial bytes") { |v| @config['meteo_h5.debug_serial_raw'] = true }
 
     super
+  end
+
+  class ModBus
+
+  class Msg
+    class Incomplete < StandardError ; end
+    class InvalidCRC < StandardError ; end
+
+    def initialize(**args)
+      args.each { |k,v| send("#{k}=", v) }
+    end
+
+    # Calc CRC16 for massage
+    def self.crc16(msg)
+      crc_lo = 0xff
+      crc_hi = 0xff
+
+      msg.unpack('c*').each do |byte|
+        i = crc_hi ^ byte
+        crc_hi = crc_lo ^ CrcHiTable[i]
+        crc_lo = CrcLoTable[i]
+      end
+
+      return ((crc_hi << 8) + crc_lo)
+    end
+
+    CrcHiTable = [
+        0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+        0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+        0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01,
+        0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41,
+        0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81,
+        0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0,
+        0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01,
+        0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40,
+        0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+        0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+        0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01,
+        0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
+        0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+        0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0,
+        0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01,
+        0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81, 0x40, 0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41,
+        0x00, 0xC1, 0x81, 0x40, 0x01, 0xC0, 0x80, 0x41, 0x01, 0xC0, 0x80, 0x41, 0x00, 0xC1, 0x81,
+        0x40]
+    CrcLoTable = [
+        0x00, 0xC0, 0xC1, 0x01, 0xC3, 0x03, 0x02, 0xC2, 0xC6, 0x06, 0x07, 0xC7, 0x05, 0xC5, 0xC4,
+        0x04, 0xCC, 0x0C, 0x0D, 0xCD, 0x0F, 0xCF, 0xCE, 0x0E, 0x0A, 0xCA, 0xCB, 0x0B, 0xC9, 0x09,
+        0x08, 0xC8, 0xD8, 0x18, 0x19, 0xD9, 0x1B, 0xDB, 0xDA, 0x1A, 0x1E, 0xDE, 0xDF, 0x1F, 0xDD,
+        0x1D, 0x1C, 0xDC, 0x14, 0xD4, 0xD5, 0x15, 0xD7, 0x17, 0x16, 0xD6, 0xD2, 0x12, 0x13, 0xD3,
+        0x11, 0xD1, 0xD0, 0x10, 0xF0, 0x30, 0x31, 0xF1, 0x33, 0xF3, 0xF2, 0x32, 0x36, 0xF6, 0xF7,
+        0x37, 0xF5, 0x35, 0x34, 0xF4, 0x3C, 0xFC, 0xFD, 0x3D, 0xFF, 0x3F, 0x3E, 0xFE, 0xFA, 0x3A,
+        0x3B, 0xFB, 0x39, 0xF9, 0xF8, 0x38, 0x28, 0xE8, 0xE9, 0x29, 0xEB, 0x2B, 0x2A, 0xEA, 0xEE,
+        0x2E, 0x2F, 0xEF, 0x2D, 0xED, 0xEC, 0x2C, 0xE4, 0x24, 0x25, 0xE5, 0x27, 0xE7, 0xE6, 0x26,
+        0x22, 0xE2, 0xE3, 0x23, 0xE1, 0x21, 0x20, 0xE0, 0xA0, 0x60, 0x61, 0xA1, 0x63, 0xA3, 0xA2,
+        0x62, 0x66, 0xA6, 0xA7, 0x67, 0xA5, 0x65, 0x64, 0xA4, 0x6C, 0xAC, 0xAD, 0x6D, 0xAF, 0x6F,
+        0x6E, 0xAE, 0xAA, 0x6A, 0x6B, 0xAB, 0x69, 0xA9, 0xA8, 0x68, 0x78, 0xB8, 0xB9, 0x79, 0xBB,
+        0x7B, 0x7A, 0xBA, 0xBE, 0x7E, 0x7F, 0xBF, 0x7D, 0xBD, 0xBC, 0x7C, 0xB4, 0x74, 0x75, 0xB5,
+        0x77, 0xB7, 0xB6, 0x76, 0x72, 0xB2, 0xB3, 0x73, 0xB1, 0x71, 0x70, 0xB0, 0x50, 0x90, 0x91,
+        0x51, 0x93, 0x53, 0x52, 0x92, 0x96, 0x56, 0x57, 0x97, 0x55, 0x95, 0x94, 0x54, 0x9C, 0x5C,
+        0x5D, 0x9D, 0x5F, 0x9F, 0x9E, 0x5E, 0x5A, 0x9A, 0x9B, 0x5B, 0x99, 0x59, 0x58, 0x98, 0x88,
+        0x48, 0x49, 0x89, 0x4B, 0x8B, 0x8A, 0x4A, 0x4E, 0x8E, 0x8F, 0x4F, 0x8D, 0x4D, 0x4C, 0x8C,
+        0x44, 0x84, 0x85, 0x45, 0x87, 0x47, 0x46, 0x86, 0x82, 0x42, 0x43, 0x83, 0x41, 0x81, 0x80,
+        0x40]
+  end
+
+  class Req < Msg
+    attr_accessor :address
+    attr_accessor :function
+    attr_accessor :range
+
+    class Incomplete < StandardError ; end
+
+    def to_net
+      pkt = [ address, function, range.first, range.count ].pack('CCnn')
+      pkt << [ self.class.crc16(pkt) ].pack('n')
+      pkt
+    end
+  end
+
+  class Resp < Msg
+    attr_accessor :address
+    attr_accessor :function
+    attr_accessor :count
+    attr_accessor :payload
+
+    def self.new_from_net(data)
+      raise Incomplete if data.size < 5
+
+      (address, function, count) = data.unpack('CCC')
+
+      # XXX TODO check address == address, function == function
+
+      raise Incomplete if data.size < (3+count+2)
+      raise "Noise?" if data.size > 3+count+2
+
+      header = data.slice(0...3)
+      payload = data.slice(3...-2)
+      (crc,) = data.slice(-2..-1).unpack('n')
+
+      raise InvalidCRC if crc != crc16(header + payload)
+
+      new(address: address, function: function, count: count / 2, payload: payload.unpack('s>*'))
+    end
+  end
+
   end
 
 
@@ -59,7 +152,7 @@ class App < Ygg::Agent::Base
       }
     )).value
 
-    @line_buffer = Ygg::App::LineBuffer.new(line_received_cb: method(:receive_line))
+    @buffer = ''
 
     @serialport = SerialPort.new(mycfg.serial.device,
       'baud' => mycfg.serial.speed,
@@ -69,10 +162,16 @@ class App < Ygg::Agent::Base
 
     @actor_epoll.add(@serialport, SleepyPenguin::Epoll::IN)
 
-    @wind_sps = 2
+    every(5.seconds) do
+      @buffer = ''
 
-    @history_size = 600 * @wind_sps # 600 seconds
-    @history = []
+      @req = ModBus::Req.new(address: mycfg.modbus_address, function: 0x03, range: (0x0000..0x0003))
+
+      pkt = @req.to_net
+
+      log.debug "TX: #{pkt.unpack('H*')}" if mycfg.debug_serial
+      @serialport.write(pkt)
+    end
   end
 
   def receive(events, io)
@@ -80,7 +179,7 @@ class App < Ygg::Agent::Base
     when @serialport
       data = @serialport.read_nonblock(65536)
 
-      log.debug "Serial Raw" if mycfg.debug_serial_raw
+      log.debug "Serial Raw: #{data.unpack('H*')}" if mycfg.debug_serial_raw
 
       if !data || data.empty?
         @actor_epoll.del(@socket)
@@ -88,173 +187,45 @@ class App < Ygg::Agent::Base
         return
       end
 
-      @line_buffer.push(data)
+      receive_data(data)
     else
       super
     end
   end
 
-  def receive_line(line)
-    line.chomp!
+  def receive_data(data)
+    @buffer << data
+    resp = ModBus::Resp.new_from_net(@buffer)
+    log.debug "RX: #{@buffer.unpack('H*')}" if mycfg.debug_serial
 
-    log.debug "Serial Line" if mycfg.debug_serial
-
-    if line =~ /^\$([A-Z]+),(.*)\*([0-9A-F][0-9A-F])$/
-      sum = line[1..-4].chars.inject(0) { |a,x| a ^ x.ord }
-      chk = $3.to_i(16)
-
-      if sum == chk
-        handle_nmea($1, $2)
-      else
-        log.error "NMEA CHK INCORRECT"
-      end
-    elsif line =~ /^\$([A-Z]+),(.*)$/
-      handle_nmea($1, $2) # Workaround for messages withoud checksum
-    end
+    receive_packet(resp)
+  rescue ModBus::Msg::Incomplete
+    nil
+  else
+    @buffer = ''
   end
 
-  def handle_nmea(msg, values)
-    log.debug "NMEA #{msg} #{values}" if mycfg.debug_nmea
+  def receive_packet(pkt)
+    @humidity = pkt.payload[0] / 10.0
+    @temperature = pkt.payload[1] / 10.0
+    @dewpoint = pkt.payload[2] / 10.0
+    @delta_t = pkt.payload[3] / 10.0
 
-    case msg
-    when 'IIMWV' ; handle_iimwv(values)
-    when 'WIMDA' ; handle_wimda(values)
-    end
-  end
-
-  def handle_iimwv(line)
-    (wind_dir, relative, wind_speed, wind_speed_unit, status) = nmea_parse(line)
-
-    wind_dir = wind_dir.to_f
-
-    case wind_speed_unit
-    when 'N'; wind_speed = (wind_speed.to_f * 1854) / 3600.0
-    when 'K'; wind_speed = (wind_speed.to_f * 1000) / 3600.0
-    when 'M'; wind_speed = wind_speed.to_f
-    when 'S'; wind_speed = (wind_speed.to_f * 1609) / 3600.0
-    end
-
-    # Record instantaneous values
-
-    @wind_speed = wind_speed
-    @wind_dir = wind_dir
-
-    # Push history data
-
-    wind_dir_rad = (wind_dir / 180) * Math::PI
-
-    gst = @history.size >= (3 * @wind_sps) ?
-            @history.last(3 * @wind_sps).map(&:speed).reduce(:+) / (3.0 * @wind_sps) :
-            wind_speed
-
-    @history.push(WindSample.new(
-      ts: Time.now,
-      speed: wind_speed,
-      dir: wind_dir,
-      vec: Complex.polar(wind_speed, wind_dir_rad),
-      gst: gst,
-    ))
-
-    if @history.size > @history_size
-      @history.slice!(-@history_size..-1)
-    end
-
-    # Calculate average and gust
-
-    hist_size = @history.size
-
-    last_2m = @history.last(120 * @wind_sps)
-    @wind_2m_avg = last_2m.map(&:speed).reduce(:+) / hist_size
-    @wind_2m_vec = last_2m.map(&:vec).reduce(:+) / hist_size
-    ( @wind_2m_gst, gst_idx ) = last_2m.map(&:gst).each_with_index.max
-    @wind_2m_gst_dir = last_2m[gst_idx].dir
-    @wind_2m_gst_ts = last_2m[gst_idx].ts
-
-    last_10m = @history
-    @wind_10m_avg = last_10m.map(&:speed).reduce(:+) / hist_size
-    @wind_10m_vec = last_10m.map(&:vec).reduce(:+) / hist_size
-    ( @wind_10m_gst, gst_idx ) = last_10m.map(&:gst).each_with_index.max
-    @wind_10m_gst_dir = last_10m[gst_idx].dir
-    @wind_10m_gst_ts = last_10m[gst_idx].ts
-
-    ####
-
-    if mycfg.debug_data
-      log.debug "Wind #{'%.1f' % wind_speed} m/s from #{wind_dir.to_i}° " +
-                " avg_2m=#{'%.1f' % @wind_2m_avg}" +
-                " vec_2m=#{'%.1f' % @wind_2m_vec.magnitude}@#{'%.0f' % (((@wind_2m_vec.phase / Math::PI) * 180) % 360)}" +
-                " gst_2m=#{'%.1f' % @wind_2m_gst} from #{'%.1f' % @wind_2m_gst_dir} at #{@wind_2m_gst_ts}" +
-                " avg_10m=#{'%.1f' % @wind_10m_avg}" +
-                " vec_10m=#{'%.1f' % @wind_10m_vec.magnitude}@#{'%.0f' % (((@wind_10m_vec.phase / Math::PI) * 180) % 360)}" +
-                " gst_10m=#{'%.1f' % @wind_10m_gst} from #{'%.1f' % @wind_10m_gst_dir} at #{@wind_10m_gst_ts}"
-    end
+    log.debug "T=#{@temperature}°C RH=#{@humidity}% DP=#{@dewpoint}°C DT=#{@delta_t}°C" if mycfg.debug_data
 
     @amqp.tell AM::AMQP::MsgPublish.new(
       destination: mycfg.exchange,
       payload: {
-        station_id: 'WS',
+        station_id: mycfg.station_name,
+        time: Time.now,
         data: {
-          wind_ok: status == 'A',
-          wind_dir: @wind_dir,
-          wind_speed: @wind_speed,
-          wind_2m_avg: @wind_2m_avg,
-          wind_2m_vec_mag: @wind_2m_vec.magnitude,
-          wind_2m_vec_dir: ((@wind_2m_vec.phase / Math::PI) * 180) % 360,
-          wind_2m_gst: @wind_2m_gst,
-          wind_2m_gst_dir: @wind_2m_gst_dir,
-          wind_2m_gst_ts: @wind_2m_gst_ts,
-          wind_10m_avg: @wind_10m_avg,
-          wind_10m_gst: @wind_10m_gst,
-          wind_10m_vec_mag: @wind_10m_vec.magnitude,
-          wind_10m_vec_dir: ((@wind_10m_vec.phase / Math::PI) * 180) % 360,
-          wind_10m_gst_dir: @wind_10m_gst_dir,
-          wind_10m_gst_ts: @wind_10m_gst_ts,
-        },
-      },
-      routing_key: 'WS',
-      options: {
-        type: 'WX_UPDATE',
-        persistent: false,
-        mandatory: false,
-      },
-    )
-  end
-
-  def handle_wimda(line)
-    data = nmea_parse(line, no_checksum: true)
-
-    (data.length / 2).times do |i|
-      case data[i * 2 + 1]
-      when 'B'
-        @qfe = (data[i * 2].to_f * 100000 + mycfg.qfe_cal_offset) * mycfg.qfe_cal_scale
-      when 'C'
-        @temperature = data[i * 2].to_f
-      end
-    end
-
-    hisa = 44330.77 - (11880.32 * ((@qfe / 100) ** 0.190263))
-    @qnh = 101325 * (( 1 - (0.0065 * ((hisa - mycfg.qfe_height)/288.15))) ** 5.25588)
-
-    if mycfg.debug_data
-      log.debug "QFE=#{'%0.1f' % (@qfe / 100)} hPa " +
-                "QNH=#{'%0.1f' % (@qnh / 100)} hPa, " +
-                "Temperature #{'%0.1f' % @temperature}"
-    end
-
-    @amqp.tell AM::AMQP::MsgPublish.new(
-      destination: mycfg.exchange,
-      payload: {
-        station_id: 'WS',
-        time: @time,
-        data: {
-          qfe: @qfe,
-          qfe_h: mycfg.qfe_height,
-          isa_h: hisa,
-          qnh: @qnh,
+          humidity: @humidity,
           temperature: @temperature,
+          dewpoint: @dewpoint,
+          delta_t: @delta_t,
         }
       },
-      routing_key: 'WS',
+      routing_key: mycfg.station_name,
       options: {
         type: 'WX_UPDATE',
         persistent: false,
@@ -262,12 +233,9 @@ class App < Ygg::Agent::Base
       }
     )
 
-
   end
 
-  def nmea_parse(line, **args)
-    line.split(',')
-  end
+
 end
 
 end
