@@ -143,13 +143,12 @@ class App < Ygg::Agent::Base
 
 
   def agent_boot
-    @amqp.ask(AM::AMQP::MsgDeclareExchange.new(
+    @amqp.ask(AM::AMQP::MsgExchangeDeclare.new(
+      channel_id: @amqp_chan,
       name: mycfg.exchange,
       type: :topic,
-      options: {
-        durable: true,
-        auto_delete: false,
-      }
+      durable: true,
+      auto_delete: false,
     )).value
 
     @buffer = ''
@@ -214,7 +213,8 @@ class App < Ygg::Agent::Base
     log.debug "T=#{@temperature}°C RH=#{@humidity}% DP=#{@dewpoint}°C DT=#{@delta_t}°C" if mycfg.debug_data
 
     @amqp.tell AM::AMQP::MsgPublish.new(
-      destination: mycfg.exchange,
+      channel_id: @amqp_chan,
+      exchange: mycfg.exchange,
       payload: {
         station_id: mycfg.station_name,
         time: Time.now,
@@ -224,12 +224,13 @@ class App < Ygg::Agent::Base
           dewpoint: @dewpoint,
           delta_t: @delta_t,
         }
-      },
+      }.to_json,
+      persistant: false,
+      mandatory: false,
       routing_key: mycfg.station_name,
-      options: {
+      headers: {
+        'Content-type': 'application/json',
         type: 'WX_UPDATE',
-        persistent: false,
-        mandatory: false,
       }
     )
 
