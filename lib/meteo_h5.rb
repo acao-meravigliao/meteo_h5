@@ -225,7 +225,7 @@ class App < Ygg::Agent::Base
           delta_t: @delta_t,
         }
       }.to_json,
-      persistant: false,
+      persistent: false,
       mandatory: false,
       routing_key: mycfg.station_name,
       headers: {
