@@ -12,8 +12,7 @@ require 'ygg/agent/base'
 require 'meteo_h5/version'
 require 'meteo_h5/task'
 
-require 'serialport'
-
+require 'serialport.rb' # if we dont't add .rb sometimes serialport.so is loaded and .rb is not
 
 module MeteoH5
 
@@ -217,7 +216,7 @@ class App < Ygg::Agent::Base
       exchange: mycfg.exchange,
       payload: {
         station_id: mycfg.station_name,
-        time: Time.now,
+        sample_ts: Time.now,
         data: {
           humidity: @humidity,
           temperature: @temperature,
