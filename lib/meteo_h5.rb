@@ -180,7 +180,7 @@ class App < Ygg::Agent::Base
       log.debug "Serial Raw: #{data.unpack('H*')}" if mycfg.debug_serial_raw
 
       if !data || data.empty?
-        @actor_epoll.del(@socket)
+        @actor_epoll.del(@serialport)
         actor_exit
         return
       end
