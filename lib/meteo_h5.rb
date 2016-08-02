@@ -158,7 +158,7 @@ class App < Ygg::Agent::Base
       'stop_bits' => 1,
       'parity' => SerialPort::NONE)
 
-    @actor_epoll.add(@serialport, SleepyPenguin::Epoll::IN)
+    @actor_epoll.add(@serialport, AM::Epoll::IN)
 
     every(5.seconds) do
       @buffer = ''
